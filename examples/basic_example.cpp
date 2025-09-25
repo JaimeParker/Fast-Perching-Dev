@@ -68,10 +68,10 @@ int main() {
         std::cout << "This demonstrates the ROS-free trajectory optimization API.\n";
         
         // Note: Actual trajectory generation would require proper implementation
-        // Trajectory result_trajectory;
-        // bool success = optimizer.generateTrajectory(initial_state, target_position, 
-        //                                           target_velocity, landing_quaternion, 
-        //                                           10, result_trajectory);
+        Trajectory result_trajectory;
+        bool success = optimizer.generateTrajectory(initial_state, target_position, 
+                                                  target_velocity, landing_quaternion, 
+                                                  10, result_trajectory);
     }
     
     std::cout << "\nExample completed successfully!\n";

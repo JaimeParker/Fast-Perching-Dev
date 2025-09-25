@@ -5,6 +5,7 @@
 #include <chrono>
 #include <thread>
 #include <memory>
+#include <iostream>
 
 #include "minco.hpp"
 #include "poly_traj_utils.hpp"

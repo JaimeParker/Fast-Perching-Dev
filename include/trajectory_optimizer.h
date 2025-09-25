@@ -680,7 +680,7 @@ private:
         double temp_cost, inner_cost;
         Eigen::Matrix<double, 8, 1> beta0, beta1, beta2, beta3, beta4;
         double s1, s2, s3, s4, s5, s6, s7;
-        double step, alpha;
+        double step, alpha, omega;
         Eigen::Matrix<double, 8, 3> gradient_violation_coeffs;
         double gradient_violation_time;
 
@@ -690,89 +690,91 @@ private:
         s1 = 0.0;
 
         for (int j = 0; j < inner_loop_count; ++j) {
-            s1 += step;
-            if (j == 0 || j == inner_loop_count - 1) {
-                alpha = 1.0;
-            } else {
-                alpha = (j % 2 == 0) ? 2.0 : 4.0;
-            }
-
             s2 = s1 * s1;
             s3 = s2 * s1;
             s4 = s2 * s2;
             s5 = s4 * s1;
-            s6 = s3 * s3;
+            s6 = s4 * s2;
             s7 = s4 * s3;
+            beta0 << 1.0, s1, s2, s3, s4, s5, s6, s7;
+            beta1 << 0.0, 1.0, 2.0 * s1, 3.0 * s2, 4.0 * s3, 5.0 * s4, 6.0 * s5, 7.0 * s6;
+            beta2 << 0.0, 0.0, 2.0, 6.0 * s1, 12.0 * s2, 20.0 * s3, 30.0 * s4, 42.0 * s5;
+            beta3 << 0.0, 0.0, 0.0, 6.0, 24.0 * s1, 60.0 * s2, 120.0 * s3, 210.0 * s4;
+            beta4 << 0.0, 0.0, 0.0, 0.0, 24.0, 120.0 * s1, 360.0 * s2, 840.0 * s3;
+            alpha = 1.0 / integration_steps_ * j;
+            omega = (j == 0 || j == inner_loop_count - 1) ? 0.5 : 1.0;
 
-            beta0(0) = 1.0; beta0(1) = s1; beta0(2) = s2; beta0(3) = s3;
-            beta0(4) = s4; beta0(5) = s5; beta0(6) = s6; beta0(7) = s7;
-            beta1(0) = 0.0; beta1(1) = 1.0; beta1(2) = 2.0 * s1; beta1(3) = 3.0 * s2;
-            beta1(4) = 4.0 * s3; beta1(5) = 5.0 * s4; beta1(6) = 6.0 * s5; beta1(7) = 7.0 * s6;
-            beta2(0) = 0.0; beta2(1) = 0.0; beta2(2) = 2.0; beta2(3) = 6.0 * s1;
-            beta2(4) = 12.0 * s2; beta2(5) = 20.0 * s3; beta2(6) = 30.0 * s4; beta2(7) = 42.0 * s5;
-            beta3(0) = 0.0; beta3(1) = 0.0; beta3(2) = 0.0; beta3(3) = 6.0;
-            beta3(4) = 24.0 * s1; beta3(5) = 60.0 * s2; beta3(6) = 120.0 * s3; beta3(7) = 210.0 * s4;
+            for (int i = 0; i < num_pieces_; ++i) {
+                const auto& c = minco_optimizer_.c.block<8, 3>(i * 8, 0);
 
-            position = minco_optimizer_.getCoeff().transpose() * beta0;
-            velocity = minco_optimizer_.getCoeff().transpose() * beta1;
-            acceleration = minco_optimizer_.getCoeff().transpose() * beta2;
-            jerk = minco_optimizer_.getCoeff().transpose() * beta3;
+                position = c.transpose() * beta0;
+                velocity = c.transpose() * beta1;
+                acceleration = c.transpose() * beta2;
+                jerk = c.transpose() * beta3;
+                snap = c.transpose() * beta4;
 
-            temp_cost = 0.0;
-            position_gradient.setZero();
-            velocity_gradient.setZero();
-            acceleration_gradient.setZero();
-            jerk_gradient.setZero();
+                position_gradient.setZero();
+                velocity_gradient.setZero();
+                acceleration_gradient.setZero();
+                jerk_gradient.setZero();
+                temp_gradient3.setZero();
+                inner_cost = 0.0;
 
-            // Apply constraints
-            getVelocityCostGradient(velocity, temp_gradient, inner_cost);
-            if (inner_cost > 0) {
-                temp_cost += inner_cost;
-                velocity_gradient += temp_gradient;
+                // Apply constraints
+                if (getFloorCostGradient(position, temp_gradient, temp_cost)) {
+                    position_gradient += temp_gradient;
+                    inner_cost += temp_cost;
+                }
+
+                if (getVelocityCostGradient(velocity, temp_gradient, temp_cost)) {
+                    velocity_gradient += temp_gradient;
+                    inner_cost += temp_cost;
+                }
+
+                if (getThrustCostGradient(acceleration, temp_gradient, temp_cost)) {
+                    acceleration_gradient += temp_gradient;
+                    inner_cost += temp_cost;
+                }
+
+                if (getAngularVelocityCostGradient(acceleration, jerk, temp_gradient, temp_gradient2, temp_cost)) {
+                    acceleration_gradient += temp_gradient;
+                    jerk_gradient += temp_gradient2;
+                    inner_cost += temp_cost;
+                }
+
+                if (getYawAngularVelocityCostGradient(acceleration, jerk, temp_gradient, temp_gradient2, temp_cost)) {
+                    acceleration_gradient += temp_gradient;
+                    jerk_gradient += temp_gradient2;
+                    inner_cost += temp_cost;
+                }
+
+                double duration_to_now = (i + alpha) * minco_optimizer_.t(1);
+                Eigen::Vector3d car_position = current_position_ + current_velocity_ * duration_to_now;
+                if (getPerchingCollisionCostGradient(position, acceleration, car_position, 
+                                                   temp_gradient, temp_gradient2, temp_gradient3, temp_cost)) {
+                    position_gradient += temp_gradient;
+                    acceleration_gradient += temp_gradient2;
+                    inner_cost += temp_cost;
+                }
+                double gradient_car_time = temp_gradient3.dot(current_velocity_);
+
+                gradient_violation_coeffs = beta0 * position_gradient.transpose();
+                gradient_violation_time = position_gradient.transpose() * velocity;
+                gradient_violation_coeffs += beta1 * velocity_gradient.transpose();
+                gradient_violation_time += velocity_gradient.transpose() * acceleration;
+                gradient_violation_coeffs += beta2 * acceleration_gradient.transpose();
+                gradient_violation_time += acceleration_gradient.transpose() * jerk;
+                gradient_violation_coeffs += beta3 * jerk_gradient.transpose();
+                gradient_violation_time += jerk_gradient.transpose() * snap;
+                gradient_violation_time += gradient_car_time;
+
+                minco_optimizer_.gdC.block<8, 3>(i * 8, 0) += omega * step * gradient_violation_coeffs;
+                minco_optimizer_.gdT += omega * (inner_cost / integration_steps_ + alpha * step * gradient_violation_time);
+                minco_optimizer_.gdT += i * omega * step * gradient_car_time;
+                cost += omega * step * inner_cost;
             }
-
-            getThrustCostGradient(acceleration, temp_gradient, inner_cost);
-            if (inner_cost > 0) {
-                temp_cost += inner_cost;
-                acceleration_gradient += temp_gradient;
-            }
-
-            getAngularVelocityCostGradient(acceleration, jerk, temp_gradient, temp_gradient2, inner_cost);
-            if (inner_cost > 0) {
-                temp_cost += inner_cost;
-                acceleration_gradient += temp_gradient;
-                jerk_gradient += temp_gradient2;
-            }
-
-            getFloorCostGradient(position, temp_gradient, inner_cost);
-            if (inner_cost > 0) {
-                temp_cost += inner_cost;
-                position_gradient += temp_gradient;
-            }
-
-            getPerchingCollisionCostGradient(position, acceleration, current_position_, 
-                                           temp_gradient, temp_gradient2, temp_gradient3, inner_cost);
-            if (inner_cost > 0) {
-                temp_cost += inner_cost;
-                position_gradient += temp_gradient;
-                acceleration_gradient += temp_gradient2;
-            }
-
-            gradient_violation_coeffs = position_gradient * beta0.transpose() + 
-                                       velocity_gradient * beta1.transpose() + 
-                                       acceleration_gradient * beta2.transpose() + 
-                                       jerk_gradient * beta3.transpose();
-
-            minco_optimizer_.gdC += alpha * gradient_violation_coeffs.transpose();
-            cost += alpha * temp_cost;
+            s1 += step;
         }
-
-        cost *= step / 3.0;
-        minco_optimizer_.gdC *= step / 3.0;
-        minco_optimizer_.gdT += minco_optimizer_.gdC.cwiseProduct(minco_optimizer_.c1).sum() +
-                              minco_optimizer_.gdC.cwiseProduct(minco_optimizer_.c2).sum() * s1 / 2.0 +
-                              minco_optimizer_.gdC.cwiseProduct(minco_optimizer_.c3).sum() * s2 / 3.0 +
-                              minco_optimizer_.gdC.cwiseProduct(minco_optimizer_.c4).sum() * s3 / 4.0;
     }
 
     // Cost and gradient functions

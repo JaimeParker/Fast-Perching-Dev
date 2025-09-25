@@ -215,7 +215,6 @@ static inline int earlyExit(void* ptrObj,
 
     obj.mincoOpt_.generate(obj.initS_, tailS, P, dT);
     auto traj = obj.mincoOpt_.getTraj();
-    obj.visPtr_->visualize_traj(traj, "debug_traj");
     std::vector<Eigen::Vector3d> int_waypts;
     for (const auto& piece : traj) {
       const auto& dur = piece.getDuration();
@@ -224,7 +223,6 @@ static inline int earlyExit(void* ptrObj,
         int_waypts.push_back(piece.getPos(t));
       }
     }
-    obj.visPtr_->visualize_pointcloud(int_waypts, "int_waypts");
 
     // NOTE pause
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
