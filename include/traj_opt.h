@@ -1,18 +1,18 @@
 #pragma once
-#include <ros/ros.h>
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <chrono>
 #include <thread>
-#include <vis_utils/vis_utils.hpp>
+#include <memory>
 
 #include "minco.hpp"
+#include "poly_traj_utils.hpp"
 
 namespace traj_opt {
 
 class TrajOpt {
  public:
-  ros::NodeHandle nh_;
-  std::shared_ptr<vis_utils::VisUtils> visPtr_;
   bool pause_debug_ = false;
   // # pieces and # key points
   int N_, K_, dim_t_, dim_p_;
@@ -40,8 +40,17 @@ class TrajOpt {
   std::vector<double> tracking_thetas_;
 
  public:
-  TrajOpt(ros::NodeHandle& nh);
+  TrajOpt();
   ~TrajOpt() {}
+
+  // Configuration methods
+  void setDynamicLimits(double vmax, double amax, double thrust_max, double thrust_min, 
+                       double omega_max, double omega_yaw_max);
+  void setRobotParameters(double v_plus, double robot_l, double robot_r, double platform_r);
+  void setOptimizationWeights(double rhoT, double rhoVt, double rhoP, double rhoV, 
+                             double rhoA, double rhoThrust, double rhoOmega, double rhoPerchingCollision);
+  void setIntegrationSteps(int K);
+  void setDebugMode(bool pause_debug);
 
   int optimize(const double& delta = 1e-4);
   bool generate_traj(const Eigen::MatrixXd& iniState,

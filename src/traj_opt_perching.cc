@@ -1,6 +1,5 @@
-#include <traj_opt/traj_opt.h>
-
-#include <traj_opt/lbfgs_raw.hpp>
+#include "traj_opt.h"
+#include "lbfgs_raw.hpp"
 
 namespace traj_opt {
 
@@ -549,30 +548,67 @@ void TrajOpt::addTimeIntPenalty(double& cost) {
   }
 }
 
-TrajOpt::TrajOpt(ros::NodeHandle& nh) {
-  // nh.getParam("N", N_);
-  nh.getParam("K", K_);
-  // load dynamic paramters
-  nh.getParam("vmax", vmax_);
-  nh.getParam("amax", amax_);
-  nh.getParam("thrust_max", thrust_max_);
-  nh.getParam("thrust_min", thrust_min_);
-  nh.getParam("omega_max", omega_max_);
-  nh.getParam("omega_yaw_max", omega_yaw_max_);
-  nh.getParam("v_plus", v_plus_);
-  nh.getParam("robot_l", robot_l_);
-  nh.getParam("robot_r", robot_r_);
-  nh.getParam("platform_r", platform_r_);
-  nh.getParam("rhoT", rhoT_);
-  nh.getParam("rhoVt", rhoVt_);
-  nh.getParam("rhoP", rhoP_);
-  nh.getParam("rhoV", rhoV_);
-  nh.getParam("rhoA", rhoA_);
-  nh.getParam("rhoThrust", rhoThrust_);
-  nh.getParam("rhoOmega", rhoOmega_);
-  nh.getParam("rhoPerchingCollision", rhoPerchingCollision_);
-  nh.getParam("pause_debug", pause_debug_);
-  visPtr_ = std::make_shared<vis_utils::VisUtils>(nh);
+TrajOpt::TrajOpt() {
+  // Set default parameters - can be configured via setter methods
+  K_ = 20;
+  // Dynamic parameters
+  vmax_ = 10.0;
+  amax_ = 10.0;
+  thrust_max_ = 20.0;
+  thrust_min_ = 2.0;
+  omega_max_ = 3.0;
+  omega_yaw_max_ = 2.0;
+  v_plus_ = 1.0;
+  robot_l_ = 0.3;
+  robot_r_ = 0.1;
+  platform_r_ = 0.5;
+  // Optimization weights
+  rhoT_ = 1.0;
+  rhoVt_ = -1.0;
+  rhoP_ = 1.0;
+  rhoV_ = 1.0;
+  rhoA_ = 1.0;
+  rhoThrust_ = 1.0;
+  rhoOmega_ = 1.0;
+  rhoPerchingCollision_ = 1.0;
+  pause_debug_ = false;
+}
+
+void TrajOpt::setDynamicLimits(double vmax, double amax, double thrust_max, double thrust_min, 
+                              double omega_max, double omega_yaw_max) {
+  vmax_ = vmax;
+  amax_ = amax;
+  thrust_max_ = thrust_max;
+  thrust_min_ = thrust_min;
+  omega_max_ = omega_max;
+  omega_yaw_max_ = omega_yaw_max;
+}
+
+void TrajOpt::setRobotParameters(double v_plus, double robot_l, double robot_r, double platform_r) {
+  v_plus_ = v_plus;
+  robot_l_ = robot_l;
+  robot_r_ = robot_r;
+  platform_r_ = platform_r;
+}
+
+void TrajOpt::setOptimizationWeights(double rhoT, double rhoVt, double rhoP, double rhoV, 
+                                    double rhoA, double rhoThrust, double rhoOmega, double rhoPerchingCollision) {
+  rhoT_ = rhoT;
+  rhoVt_ = rhoVt;
+  rhoP_ = rhoP;
+  rhoV_ = rhoV;
+  rhoA_ = rhoA;
+  rhoThrust_ = rhoThrust;
+  rhoOmega_ = rhoOmega;
+  rhoPerchingCollision_ = rhoPerchingCollision;
+}
+
+void TrajOpt::setIntegrationSteps(int K) {
+  K_ = K;
+}
+
+void TrajOpt::setDebugMode(bool pause_debug) {
+  pause_debug_ = pause_debug;
 }
 
 bool TrajOpt::grad_cost_v(const Eigen::Vector3d& v,
