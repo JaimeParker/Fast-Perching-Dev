@@ -363,7 +363,7 @@ public:
         Eigen::Vector2d projected_normal = body_to_world_rotation * plane_normal;
         double projected_normal_norm = sqrt(projected_normal.squaredNorm() + eps);
         
-        double penetration = plane_normal.dot(position) - (robot_length_ - 0.005) * plane_normal.dot(body_z) - 
+        double penetration = plane_normal.dot(position) - robot_length_ * plane_normal.dot(body_z) - 
                            plane_offset + robot_radius_ * projected_normal_norm;
         
         return penetration > 0;
@@ -467,10 +467,28 @@ private:
     }
 
     // Smoothing functions
+    // static double getSmoothedL1(const double& value, double& gradient) {
+    //     static double mu = 0.01;
+    //     if (value < 0.0) {
+    //         gradient = 0.0;
+    //         return 0.0;
+    //     } else if (value > mu) {
+    //         gradient = 1.0;
+    //         return value - 0.5 * mu;
+    //     } else {
+    //         const double normalized_value = value / mu;
+    //         const double squared_normalized = normalized_value * normalized_value;
+    //         const double mu_minus_half_x = mu - 0.5 * value;
+    //         gradient = squared_normalized * ((-0.5) * normalized_value + 3.0 * mu_minus_half_x / mu);
+    //         return mu_minus_half_x * squared_normalized * normalized_value;
+    //     }
+    // }
+
     static double getSmoothedL1(const double& value, double& gradient) {
+        // IMPORTANT: This version intentionally replicates a bug from the original code
+        // where the gradient is NOT set to 0 for value < 0. This is necessary for 1-to-1 matching.
         static double mu = 0.01;
         if (value < 0.0) {
-            gradient = 0.0;
             return 0.0;
         } else if (value > mu) {
             gradient = 1.0;
@@ -826,6 +844,20 @@ private:
                 }
                 double gradient_car_time = temp_gradient3.dot(current_velocity_);
 
+                // DEBUG LOGGING START
+                // if (static_iteration_count_ % 10 == 0 && j == integration_steps_ / 2) { // Log on specific iterations and at the midpoint of the piece
+                //     double floor_c = 0, v_c = 0, thrust_c = 0, omega_c = 0, perch_c = 0;
+                //     Eigen::Vector3d unused_grad, unused_grad2, unused_grad3;
+                //     getFloorCostGradient(position, unused_grad, floor_c);
+                //     getVelocityCostGradient(velocity, unused_grad, v_c);
+                //     getThrustCostGradient(acceleration, unused_grad, thrust_c);
+                //     getAngularVelocityCostGradient(acceleration, jerk, unused_grad, unused_grad2, omega_c);
+                //     getPerchingCollisionCostGradient(position, acceleration, car_position, unused_grad, unused_grad2, unused_grad3, perch_c);
+                //     printf("[REFACTORED] it:%d i:%d j:%d pos:%.2f,%.2f,%.2f costs(f,v,t,o,p): %.3f,%.3f,%.3f,%.3f,%.3f\n",
+                //            static_iteration_count_, i, j, position.x(), position.y(), position.z(), floor_c, v_c, thrust_c, omega_c, perch_c);
+                // }
+                // DEBUG LOGGING END
+
                 gradient_violation_coeffs = beta0 * position_gradient.transpose();
                 gradient_violation_time = position_gradient.transpose() * velocity;
                 gradient_violation_coeffs += beta1 * velocity_gradient.transpose();
@@ -941,115 +973,112 @@ private:
         }
     }
 
-    bool getPerchingCollisionCostGradient(const Eigen::Vector3d& position,
-                                         const Eigen::Vector3d& acceleration,
-                                         const Eigen::Vector3d& target_position,
-                                         Eigen::Vector3d& position_gradient,
-                                         Eigen::Vector3d& acceleration_gradient,
-                                         Eigen::Vector3d& target_position_gradient,
+    bool getPerchingCollisionCostGradient(const Eigen::Vector3d& pos,
+                                         const Eigen::Vector3d& acc,
+                                         const Eigen::Vector3d& car_p,
+                                         Eigen::Vector3d& gradp,
+                                         Eigen::Vector3d& grada,
+                                         Eigen::Vector3d& grad_car_p,
                                          double& cost) {
         static double eps = 1e-6;
 
-        double distance_squared = (position - target_position).squaredNorm();
-        double safe_radius = platform_radius_ + robot_radius_;
-        double safe_radius_squared = safe_radius * safe_radius;
-        double distance_penalty = safe_radius_squared - distance_squared;
-        distance_penalty /= safe_radius_squared;
-        
-        double distance_gradient = 0.0;
-        double smoothed_distance = getSmoothed01(distance_penalty, distance_gradient);
-        if (smoothed_distance == 0.0) {
-            // position_gradient.setZero();
-            // acceleration_gradient.setZero();
-            // target_position_gradient.setZero();
-            // cost = 0.0;
+        double dist_sqr = (pos - car_p).squaredNorm();
+        double safe_r = platform_radius_ + robot_radius_;
+        double safe_r_sqr = safe_r * safe_r;
+        double pen_dist = safe_r_sqr - dist_sqr;
+        pen_dist /= safe_r_sqr;
+        double grad_dist = 0;
+        double var01 = getSmoothed01(pen_dist, grad_dist);
+        if (var01 == 0) {
             return false;
         }
-        
-        Eigen::Vector3d distance_gradient_position = distance_gradient * 2.0 * (target_position - position);
-        Eigen::Vector3d distance_gradient_target = -distance_gradient_position;
+        Eigen::Vector3d gradp_dist = grad_dist * 2 * (car_p - pos);
+        Eigen::Vector3d grad_carp_dist = -gradp_dist;
 
-        Eigen::Vector3d plane_normal = -tail_quaternion_vector_;
-        double plane_offset = plane_normal.dot(target_position);
+        Eigen::Vector3d a_i = -static_tail_quaternion_vector_;
+        double b_i = a_i.dot(car_p);
 
-        Eigen::Vector3d thrust_force = acceleration - gravity_;
-        Eigen::Vector3d body_z = normalizeVector(thrust_force);
+        Eigen::Vector3d thrust_f = acc - static_gravity_;
+        Eigen::Vector3d zb = normalizeVector(thrust_f);
 
-        Eigen::MatrixXd body_to_world_rotation(2, 3);
-        double a = body_z.x();
-        double b = body_z.y();
-        double c = body_z.z();
-        double c_inv = 1.0 / (1.0 + c);
+        Eigen::MatrixXd BTRT(2, 3);
+        double a = zb.x();
+        double b = zb.y();
+        double c = zb.z();
 
-        body_to_world_rotation(0, 0) = 1.0 - a * a * c_inv;
-        body_to_world_rotation(0, 1) = -a * b * c_inv;
-        body_to_world_rotation(0, 2) = -a;
-        body_to_world_rotation(1, 0) = -a * b * c_inv;
-        body_to_world_rotation(1, 1) = 1.0 - b * b * c_inv;
-        body_to_world_rotation(1, 2) = -b;
+        double c_1 = 1.0 / (1 + c);
 
-        Eigen::Vector2d projected_normal = body_to_world_rotation * plane_normal;
-        double projected_normal_norm = sqrt(projected_normal.squaredNorm() + eps);
-        
-        double penetration = plane_normal.dot(position) - (robot_length_ - 0.005) * plane_normal.dot(body_z) - 
-                           plane_offset + robot_radius_ * projected_normal_norm;
+        BTRT(0, 0) = 1 - a * a * c_1;
+        BTRT(0, 1) = -a * b * c_1;
+        BTRT(0, 2) = -a;
+        BTRT(1, 0) = -a * b * c_1;
+        BTRT(1, 1) = 1 - b * b * c_1;
+        BTRT(1, 2) = -b;
 
-        if (penetration > 0) {
-            double penetration_gradient = 0.0;
-            cost = perching_collision_weight_ * smoothed_distance * getSmoothedL1(penetration, penetration_gradient);
-            
-            // Calculate complex acceleration gradient using chain rule (ported from original implementation)
-            Eigen::Vector3d penetration_gradient_position = penetration_gradient * plane_normal;
-            Eigen::Vector3d penetration_gradient_target = penetration_gradient * (-plane_normal);
-            Eigen::Vector2d grad_v2 = robot_radius_ * projected_normal / projected_normal_norm;
+        Eigen::Vector2d v2 = BTRT * a_i;
+        double v2_norm = sqrt(v2.squaredNorm() + eps);
+        double pen = a_i.dot(pos) - (robot_length_ - 0.005) * a_i.dot(zb) - b_i + robot_radius_ * v2_norm;
 
-            // Partial derivative matrices with respect to body_z components
+        if (pen > 0) {
+            double grad = 0;
+            cost = getSmoothedL1(pen, grad);
+            // gradients: pos, car_p, v2
+            gradp = a_i;
+            grad_car_p = -a_i;
+            Eigen::Vector2d grad_v2 = robot_radius_ * v2 / v2_norm;
+
             Eigen::MatrixXd pM_pa(2, 3), pM_pb(2, 3), pM_pc(2, 3);
-            double c2_inv = c_inv * c_inv;
+            double c2_1 = c_1 * c_1;
 
-            pM_pa(0, 0) = -2.0 * a * c_inv;
-            pM_pa(0, 1) = -b * c_inv;
-            pM_pa(0, 2) = -1.0;
-            pM_pa(1, 0) = -b * c_inv;
-            pM_pa(1, 1) = 0.0;
-            pM_pa(1, 2) = 0.0;
+            pM_pa(0, 0) = -2 * a * c_1;
+            pM_pa(0, 1) = -b * c_1;
+            pM_pa(0, 2) = -1;
+            pM_pa(1, 0) = -b * c_1;
+            pM_pa(1, 1) = 0;
+            pM_pa(1, 2) = 0;
 
-            pM_pb(0, 0) = 0.0;
-            pM_pb(0, 1) = -a * c_inv;
-            pM_pb(0, 2) = 0.0;
-            pM_pb(1, 0) = -a * c_inv;
-            pM_pb(1, 1) = -2.0 * b * c_inv;
-            pM_pb(1, 2) = -1.0;
+            pM_pb(0, 0) = 0;
+            pM_pb(0, 1) = -a * c_1;
+            pM_pb(0, 2) = 0;
+            pM_pb(1, 0) = -a * c_1;
+            pM_pb(1, 1) = -2 * b * c_1;
+            pM_pb(1, 2) = -1;
 
-            pM_pc(0, 0) = a * a * c2_inv;
-            pM_pc(0, 1) = a * b * c2_inv;
-            pM_pc(0, 2) = 0.0;
-            pM_pc(1, 0) = a * b * c2_inv;
-            pM_pc(1, 1) = b * b * c2_inv;
-            pM_pc(1, 2) = 0.0;
+            pM_pc(0, 0) = a * a * c2_1;
+            pM_pc(0, 1) = a * b * c2_1;
+            pM_pc(0, 2) = 0;
+            pM_pc(1, 0) = a * b * c2_1;
+            pM_pc(1, 1) = b * b * c2_1;
+            pM_pc(1, 2) = 0;
 
-            // Chain rule: gradient with respect to body_z
             Eigen::MatrixXd pv2_pzb(2, 3);
-            pv2_pzb.col(0) = pM_pa * plane_normal;
-            pv2_pzb.col(1) = pM_pb * plane_normal;
-            pv2_pzb.col(2) = pM_pc * plane_normal;
+            pv2_pzb.col(0) = pM_pa * a_i;
+            pv2_pzb.col(1) = pM_pb * a_i;
+            pv2_pzb.col(2) = pM_pc * a_i;
 
-            Eigen::Vector3d grad_zb = pv2_pzb.transpose() * grad_v2 - (robot_length_ - 0.005) * plane_normal;
+            Eigen::Vector3d grad_zb = pv2_pzb.transpose() * grad_v2 - robot_length_ * a_i;
 
-            // Final acceleration gradient using normalization derivative
-            Eigen::Vector3d acceleration_gradient_from_body_z = getNormalizationDerivative(thrust_force).transpose() * grad_zb;
-            
-            position_gradient = perching_collision_weight_ * (smoothed_distance * penetration_gradient_position + 
-                                                            penetration * distance_gradient_position);
-            acceleration_gradient = perching_collision_weight_ * smoothed_distance * penetration_gradient * acceleration_gradient_from_body_z;
-            target_position_gradient = perching_collision_weight_ * (smoothed_distance * penetration_gradient_target + 
-                                                                   penetration * distance_gradient_target);
-            
+            grada = getNormalizationDerivative(thrust_f).transpose() * grad_zb;
+
+            grad *= var01;
+            gradp_dist *= cost;
+            grad_carp_dist *= cost;
+            cost *= var01;
+            gradp = grad * gradp + gradp_dist;
+            grada *= grad;
+            grad_car_p = grad * grad_car_p + grad_carp_dist;
+
+            cost *= perching_collision_weight_;
+            gradp *= perching_collision_weight_;
+            grada *= perching_collision_weight_;
+            grad_car_p *= perching_collision_weight_;
+
             return true;
         }
-        
         return false;
     }
+
+
 };
 
 // Static thread_local variable definitions
