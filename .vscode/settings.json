@@ -1,10 +1,39 @@
 {
+  // Keep user's original settings
   "editor.formatOnSave": false,
   "C_Cpp.clang_format_style": "{ BasedOnStyle: Google, IndentWidth: 4, ColumnLimit: 0}",
-  "python.autoComplete.extraPaths": [
-    "/opt/ros/noetic/lib/python3/dist-packages"
-  ],
-  "python.analysis.extraPaths": [
-    "/opt/ros/noetic/lib/python3/dist-packages"
-  ]
+
+  // C/C++ specific settings for Ubuntu
+  "C_Cpp.default.compilerPath": "/usr/bin/g++",
+  "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+  "C_Cpp.default.cppStandard": "c++17",
+  "C_Cpp.default.cStandard": "c17",
+
+  // Enable format on save for C/C++ files
+  "[cpp]": {
+    "editor.formatOnSave": true
+  },
+  "[c]": {
+    "editor.formatOnSave": true
+  },
+
+  // File associations
+  "files.associations": {
+    "*.h": "cpp",
+    "*.hpp": "cpp",
+    "*.tcc": "cpp",
+    "*.cc": "cpp"
+  },
+
+  // CMake Tools extension settings based on your build instructions
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureOnOpen": true,
+
+  // Exclude build directory from file explorer and search
+  "files.exclude": {
+    "**/build": true
+  },
+  "search.exclude": {
+    "**/build": true
+  }
 }

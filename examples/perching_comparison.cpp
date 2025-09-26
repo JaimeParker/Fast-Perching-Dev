@@ -199,7 +199,7 @@ int main() {
     
     // Save trajectories to files for visualization
     if (traj_opt_success) {
-        std::ofstream file1("original_trajectory.csv");
+        std::ofstream file1("../assets/original_trajectory.csv");
         file1 << "time,pos_x,pos_y,pos_z,vel_x,vel_y,vel_z,acc_x,acc_y,acc_z\n";
         
         double dt = 0.01; // 10ms sampling
@@ -213,11 +213,11 @@ int main() {
                   << acc.x() << "," << acc.y() << "," << acc.z() << "\n";
         }
         file1.close();
-        std::cout << "Original trajectory saved to original_trajectory.csv\n";
+        std::cout << "Original trajectory saved to ../assets/original_trajectory.csv\n";
     }
     
     if (perching_optimizer_success) {
-        std::ofstream file2("perching_optimizer_trajectory.csv");
+        std::ofstream file2("../assets/perching_optimizer_trajectory.csv");
         file2 << "time,pos_x,pos_y,pos_z,vel_x,vel_y,vel_z,acc_x,acc_y,acc_z\n";
         
         double dt = 0.01; // 10ms sampling
@@ -231,7 +231,7 @@ int main() {
                   << acc.x() << "," << acc.y() << "," << acc.z() << "\n";
         }
         file2.close();
-        std::cout << "PerchingOptimizer trajectory saved to perching_optimizer_trajectory.csv\n";
+        std::cout << "PerchingOptimizer trajectory saved to ../assets/perching_optimizer_trajectory.csv\n";
     }
 
     // Compare results

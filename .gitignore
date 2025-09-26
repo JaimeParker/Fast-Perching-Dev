@@ -1,10 +1,40 @@
-src/CMakeLists.txt
-.catkin_workspace
-devel
-build
-debug
-txts
-bags
-*.bag
-*.bag.active
-src/real_flight
+# Build directories
+/build/
+/bin/
+/lib/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/Makefile
+/assets
+
+# IDE files
+*.swp
+*.swo
+*.user
+*.vcxproj*
+*.idea/
+*.vscode/
+*.DS_Store
+
+# Compiled object files
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.out
+
+# Generated files
+*.log
+*.tmp
+
+# Test and coverage
+*.gcno
+*.gcda
+*.gcov
+
+# Other
+*.a
+*.lai
+*.la
