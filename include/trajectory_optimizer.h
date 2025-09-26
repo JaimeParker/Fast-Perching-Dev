@@ -830,8 +830,9 @@ private:
         double min_penalty = min_thrust_ * min_thrust_ - thrust_force.squaredNorm();
         if (min_penalty > 0) {
             double gradient_scalar = 0.0;
-            acceleration_cost += thrust_weight_ * getSmoothedL1(min_penalty, gradient_scalar);
-            acceleration_gradient -= thrust_weight_ * 2.0 * gradient_scalar * thrust_force;
+            // FIXME: this might be bug in the original code, but we keep it for now
+            acceleration_cost = thrust_weight_ * getSmoothedL1(min_penalty, gradient_scalar);
+            acceleration_gradient = -thrust_weight_ * 2.0 * gradient_scalar * thrust_force;
             has_violation = true;
         }
 
@@ -850,6 +851,7 @@ private:
         
         if (penalty > 0) {
             double gradient_scalar = 0.0;
+            // FIXME: check potential mismatch with TrajOpt::grad_cost_omega here
             cost = angular_velocity_weight_ * getSmoothedL1(penalty, gradient_scalar);
             
             Eigen::Vector3d temp_gradient = angular_velocity_weight_ * gradient_scalar * 2.0 * body_z_dot;
@@ -947,14 +949,50 @@ private:
             double penetration_gradient = 0.0;
             cost = perching_collision_weight_ * smoothed_distance * getSmoothedL1(penetration, penetration_gradient);
             
-            // Compute gradients (complex calculation involving multiple chain rules)
+            // Calculate complex acceleration gradient using chain rule (ported from original implementation)
             Eigen::Vector3d penetration_gradient_position = penetration_gradient * plane_normal;
-            Eigen::Vector3d penetration_gradient_acceleration = Eigen::Vector3d::Zero(); // Simplified
             Eigen::Vector3d penetration_gradient_target = penetration_gradient * (-plane_normal);
+            Eigen::Vector2d grad_v2 = robot_radius_ * projected_normal / projected_normal_norm;
+
+            // Partial derivative matrices with respect to body_z components
+            Eigen::MatrixXd pM_pa(2, 3), pM_pb(2, 3), pM_pc(2, 3);
+            double c2_inv = c_inv * c_inv;
+
+            pM_pa(0, 0) = -2.0 * a * c_inv;
+            pM_pa(0, 1) = -b * c_inv;
+            pM_pa(0, 2) = -1.0;
+            pM_pa(1, 0) = -b * c_inv;
+            pM_pa(1, 1) = 0.0;
+            pM_pa(1, 2) = 0.0;
+
+            pM_pb(0, 0) = 0.0;
+            pM_pb(0, 1) = -a * c_inv;
+            pM_pb(0, 2) = 0.0;
+            pM_pb(1, 0) = -a * c_inv;
+            pM_pb(1, 1) = -2.0 * b * c_inv;
+            pM_pb(1, 2) = -1.0;
+
+            pM_pc(0, 0) = a * a * c2_inv;
+            pM_pc(0, 1) = a * b * c2_inv;
+            pM_pc(0, 2) = 0.0;
+            pM_pc(1, 0) = a * b * c2_inv;
+            pM_pc(1, 1) = b * b * c2_inv;
+            pM_pc(1, 2) = 0.0;
+
+            // Chain rule: gradient with respect to body_z
+            Eigen::MatrixXd pv2_pzb(2, 3);
+            pv2_pzb.col(0) = pM_pa * plane_normal;
+            pv2_pzb.col(1) = pM_pb * plane_normal;
+            pv2_pzb.col(2) = pM_pc * plane_normal;
+
+            Eigen::Vector3d grad_zb = pv2_pzb.transpose() * grad_v2 - (robot_length_ - 0.005) * plane_normal;
+
+            // Final acceleration gradient using normalization derivative
+            Eigen::Vector3d acceleration_gradient_from_body_z = getNormalizationDerivative(thrust_force).transpose() * grad_zb;
             
             position_gradient = perching_collision_weight_ * (smoothed_distance * penetration_gradient_position + 
                                                             penetration * distance_gradient_position);
-            acceleration_gradient = perching_collision_weight_ * smoothed_distance * penetration_gradient_acceleration;
+            acceleration_gradient = perching_collision_weight_ * smoothed_distance * penetration_gradient * acceleration_gradient_from_body_z;
             target_position_gradient = perching_collision_weight_ * (smoothed_distance * penetration_gradient_target + 
                                                                    penetration * distance_gradient_target);
             
