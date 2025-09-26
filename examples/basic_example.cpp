@@ -195,7 +195,7 @@ int main() {
             // FIXME: trajectory mismatch issue
             std::cout << "✓ Trajectories are very similar! Both optimizers produced consistent results.\n";
         } else {
-            std::cout << "⚠ Trajectories differ significantly. This may indicate implementation differences.\n";
+            std::cout << "\033[1;33m⚠ Trajectories differ significantly. This may indicate implementation differences.\033[0m\n";
         }
         
         // Performance comparison

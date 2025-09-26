@@ -910,10 +910,10 @@ private:
         double distance_gradient = 0.0;
         double smoothed_distance = getSmoothed01(distance_penalty, distance_gradient);
         if (smoothed_distance == 0.0) {
-            position_gradient.setZero();
-            acceleration_gradient.setZero();
-            target_position_gradient.setZero();
-            cost = 0.0;
+            // position_gradient.setZero();
+            // acceleration_gradient.setZero();
+            // target_position_gradient.setZero();
+            // cost = 0.0;
             return false;
         }
         
