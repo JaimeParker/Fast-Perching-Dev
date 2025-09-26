@@ -1,6 +1,7 @@
 #include "traj_opt.h"
 #include "perching_optimizer.h"
 #include <iostream>
+#include <fstream>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <chrono>
@@ -196,6 +197,43 @@ int main() {
         }
     }
     
+    // Save trajectories to files for visualization
+    if (traj_opt_success) {
+        std::ofstream file1("original_trajectory.csv");
+        file1 << "time,pos_x,pos_y,pos_z,vel_x,vel_y,vel_z,acc_x,acc_y,acc_z\n";
+        
+        double dt = 0.01; // 10ms sampling
+        for (double t = 0.0; t <= traj_opt_result.getTotalDuration(); t += dt) {
+            Eigen::Vector3d pos = traj_opt_result.getPos(t);
+            Eigen::Vector3d vel = traj_opt_result.getVel(t);
+            Eigen::Vector3d acc = traj_opt_result.getAcc(t);
+            
+            file1 << t << "," << pos.x() << "," << pos.y() << "," << pos.z() << ","
+                  << vel.x() << "," << vel.y() << "," << vel.z() << ","
+                  << acc.x() << "," << acc.y() << "," << acc.z() << "\n";
+        }
+        file1.close();
+        std::cout << "Original trajectory saved to original_trajectory.csv\n";
+    }
+    
+    if (perching_optimizer_success) {
+        std::ofstream file2("perching_optimizer_trajectory.csv");
+        file2 << "time,pos_x,pos_y,pos_z,vel_x,vel_y,vel_z,acc_x,acc_y,acc_z\n";
+        
+        double dt = 0.01; // 10ms sampling
+        for (double t = 0.0; t <= perching_optimizer_result.getTotalDuration(); t += dt) {
+            Eigen::Vector3d pos = perching_optimizer_result.getPos(t);
+            Eigen::Vector3d vel = perching_optimizer_result.getVel(t);
+            Eigen::Vector3d acc = perching_optimizer_result.getAcc(t);
+            
+            file2 << t << "," << pos.x() << "," << pos.y() << "," << pos.z() << ","
+                  << vel.x() << "," << vel.y() << "," << vel.z() << ","
+                  << acc.x() << "," << acc.y() << "," << acc.z() << "\n";
+        }
+        file2.close();
+        std::cout << "PerchingOptimizer trajectory saved to perching_optimizer_trajectory.csv\n";
+    }
+
     // Compare results
     std::cout << "\n=== Comparison Results ===\n";
     
