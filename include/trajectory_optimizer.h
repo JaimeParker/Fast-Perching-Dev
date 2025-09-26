@@ -24,7 +24,11 @@ public:
         acceleration_weight_(1.0), thrust_weight_(1.0), angular_velocity_weight_(1.0), 
         perching_collision_weight_(1.0), gravity_(0, 0, -9.8), has_initial_guess_(false),
         thrust_middle_(0.0), thrust_half_(0.0), timing_inner_loop_(0.0), timing_integral_(0.0),
-        iteration_count_(0), debug_mode_(false) {}
+        iteration_count_(0), debug_mode_(false),
+        current_position_(Eigen::Vector3d::Zero()), current_velocity_(Eigen::Vector3d::Zero()),
+        tail_quaternion_vector_(Eigen::Vector3d::Zero()), landing_velocity_(Eigen::Vector3d::Zero()),
+        velocity_tangent_x_(Eigen::Vector3d::Zero()), velocity_tangent_y_(Eigen::Vector3d::Zero()),
+        initial_tail_thrust_(0.0), initial_velocity_tangent_(Eigen::Vector2d::Zero()) {}
     
     ~TrajectoryOptimizer() {
         if (optimization_variables_) {
@@ -105,29 +109,44 @@ public:
                 waypoints.col(i) = initial_trajectory_.getPos(sample_time);
             }
         } else {
-            // Initialize with straight line trajectory
-            time_var = getLogarithmicC2(2.0);
+            // Initialize with feasible trajectory using boundary value problem
+            Eigen::MatrixXd initial_bvp = initial_state_matrix_;
+            Eigen::MatrixXd final_bvp(3, 4);
+            final_bvp.col(0) = current_position_;
+            final_bvp.col(1) = current_velocity_;
+            final_bvp.col(2) = getForwardThrust(tail_thrust) * tail_quaternion_vector_ + gravity_;
+            final_bvp.col(3).setZero();
             
-            Eigen::Vector3d tail_position = current_position_ + current_velocity_ * num_pieces_ * getExponentialC2(time_var) + 
-                                          tail_quaternion_vector_ * robot_length_;
-            Eigen::Vector3d tail_velocity;
-            getForwardTailVelocity(velocity_tangent, tail_velocity);
-            
-            Eigen::MatrixXd tail_state(3, 4);
-            tail_state.col(0) = tail_position;
-            tail_state.col(1) = tail_velocity;
-            tail_state.col(2) = getForwardThrust(tail_thrust) * tail_quaternion_vector_ + gravity_;
-            tail_state.col(3).setZero();
-            
-            // Solve boundary value problem to get initial waypoints
+            // Start with distance-based time estimate
+            double T_bvp = (final_bvp.col(0) - initial_bvp.col(0)).norm() / max_velocity_;
             CoefficientMat coeff_matrix;
-            solveBoundaryValueProblem(getExponentialC2(time_var), initial_state_matrix_, tail_state, coeff_matrix);
+            double max_omega = 0;
             
-            // Extract waypoints from polynomial coefficients
+            // Iteratively increase T_bvp until max angular velocity is feasible
+            do {
+                T_bvp += 1.0;
+                final_bvp.col(0) = current_position_ + current_velocity_ * T_bvp;
+                solveBoundaryValueProblem(T_bvp, initial_bvp, final_bvp, coeff_matrix);
+                
+                // Create temporary trajectory to check angular velocity
+                std::vector<double> durations{T_bvp};
+                std::vector<CoefficientMat> coeffs{coeff_matrix};
+                Trajectory temp_traj(durations, coeffs);
+                max_omega = getMaximumAngularVelocity(temp_traj);
+            } while (max_omega > 1.5 * max_angular_velocity_);
+            
+            // Extract waypoints using polynomial evaluation
+            Eigen::VectorXd time_powers(8);
+            time_powers(7) = 1.0;
             for (int i = 0; i < waypoint_dimension_; ++i) {
-                double tau = (i + 1.0) / num_pieces_;
-                waypoints.col(i) = evaluatePolynomial(coeff_matrix, tau * getExponentialC2(time_var));
+                double sample_time = (i + 1.0) / num_pieces_ * T_bvp;
+                for (int j = 6; j >= 0; j--) {
+                    time_powers(j) = time_powers(j + 1) * sample_time;
+                }
+                waypoints.col(i) = coeff_matrix * time_powers;
             }
+            
+            time_var = getLogarithmicC2(T_bvp / num_pieces_);
         }
         
         // Setup L-BFGS parameters
@@ -742,11 +761,11 @@ private:
                     inner_cost += temp_cost;
                 }
 
-                if (getYawAngularVelocityCostGradient(acceleration, jerk, temp_gradient, temp_gradient2, temp_cost)) {
-                    acceleration_gradient += temp_gradient;
-                    jerk_gradient += temp_gradient2;
-                    inner_cost += temp_cost;
-                }
+                // if (getYawAngularVelocityCostGradient(acceleration, jerk, temp_gradient, temp_gradient2, temp_cost)) {
+                //     acceleration_gradient += temp_gradient;
+                //     jerk_gradient += temp_gradient2;
+                //     inner_cost += temp_cost;
+                // }
 
                 double duration_to_now = (i + alpha) * minco_optimizer_.t(1);
                 Eigen::Vector3d car_position = current_position_ + current_velocity_ * duration_to_now;
@@ -845,14 +864,14 @@ private:
         return false;
     }
 
-    bool getYawAngularVelocityCostGradient(const Eigen::Vector3d& acceleration,
-                                          const Eigen::Vector3d& jerk,
-                                          Eigen::Vector3d& acceleration_gradient,
-                                          Eigen::Vector3d& jerk_gradient,
-                                          double& cost) {
-        // TODO: Implement yaw angular velocity constraint
-        return false;
-    }
+    // bool getYawAngularVelocityCostGradient(const Eigen::Vector3d& acceleration,
+    //                                       const Eigen::Vector3d& jerk,
+    //                                       Eigen::Vector3d& acceleration_gradient,
+    //                                       Eigen::Vector3d& jerk_gradient,
+    //                                       double& cost) {
+    //     // TODO: Implement yaw angular velocity constraint
+    //     return false;
+    // }
 
     bool getFloorCostGradient(const Eigen::Vector3d& position,
                              Eigen::Vector3d& position_gradient,
