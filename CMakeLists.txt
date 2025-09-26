@@ -17,6 +17,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 # Find required packages
 find_package(Eigen3 REQUIRED)
+find_package(PythonLibs REQUIRED)
 find_package(pybind11 REQUIRED)
 
 # Include directories
@@ -55,19 +56,16 @@ target_link_libraries(precision_test traj_opt_lib)
 add_executable(simple_comparison examples/simple_comparison.cpp)
 target_link_libraries(simple_comparison traj_opt_lib)
 
-# Installation rules (optional)
-install(TARGETS traj_opt_lib
-    EXPORT traj_opt_libConfig
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-)
+# Create Python module
+pybind11_add_module(perching_optimizer_py src/perching_optimizer_api.cc)
 
-install(DIRECTORY include/
-    DESTINATION include
-    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
-)
+# Include directories for the Python module
+target_include_directories(perching_optimizer_py PRIVATE include ${EIGEN3_INCLUDE_DIR})
 
-install(EXPORT traj_opt_libConfig
-    DESTINATION lib/cmake/traj_opt_lib
+# Link libraries for the Python module
+target_link_libraries(perching_optimizer_py PRIVATE Eigen3::Eigen)
+
+# Set target properties to output the module in the build directory
+set_target_properties(perching_optimizer_py PROPERTIES 
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )

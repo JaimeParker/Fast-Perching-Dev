@@ -1,5 +1,5 @@
 // This is a refactored and improved version of the original optimizer implementation.
-// Author: Zhaohong Liu
+// Author: Zhaohong Liu and Claude Sonnet4 Agent
 
 #pragma once
 

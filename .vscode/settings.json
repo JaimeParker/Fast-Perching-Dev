@@ -31,10 +31,10 @@
   "cmake.configureOnOpen": true,
 
   // Exclude build directory from file explorer and search
-  "files.exclude": {
-    "**/build": true
-  },
-  "search.exclude": {
-    "**/build": true
-  }
+  // "files.exclude": {
+  //   "**/build": true
+  // },
+  // "search.exclude": {
+  //   "**/build": true
+  // }
 }
