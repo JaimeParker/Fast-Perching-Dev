@@ -1,5 +1,6 @@
 #include "traj_opt.h"
 #include "trajectory_optimizer.h"
+#include "perching_optimizer.h"
 #include <iostream>
 #include <Eigen/Core>
 #include <Eigen/Geometry>

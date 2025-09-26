@@ -41,9 +41,18 @@ target_include_directories(traj_opt_lib PUBLIC
     ${EIGEN3_INCLUDE_DIR}
 )
 
-# Create example executable
+# Create example executables
 add_executable(traj_opt_example examples/basic_example.cpp)
 target_link_libraries(traj_opt_example traj_opt_lib)
+
+add_executable(perching_comparison examples/perching_comparison.cpp)
+target_link_libraries(perching_comparison traj_opt_lib)
+
+add_executable(precision_test examples/precision_test.cpp)
+target_link_libraries(precision_test traj_opt_lib)
+
+add_executable(simple_comparison examples/simple_comparison.cpp)
+target_link_libraries(simple_comparison traj_opt_lib)
 
 # Installation rules (optional)
 install(TARGETS traj_opt_lib
