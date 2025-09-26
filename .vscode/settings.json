@@ -22,7 +22,8 @@
     "*.h": "cpp",
     "*.hpp": "cpp",
     "*.tcc": "cpp",
-    "*.cc": "cpp"
+    "*.cc": "cpp",
+    "iostream": "cpp"
   },
 
   // CMake Tools extension settings based on your build instructions

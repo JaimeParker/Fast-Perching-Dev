@@ -17,6 +17,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 # Find required packages
 find_package(Eigen3 REQUIRED)
+find_package(pybind11 REQUIRED)
 
 # Include directories
 include_directories(

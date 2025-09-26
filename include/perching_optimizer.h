@@ -1,12 +1,19 @@
+// This is a refactored and improved version of the original optimizer implementation.
+// Author: Zhaohong Liu
+
 #pragma once
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <cassert>
 #include <chrono>
 #include <cmath>
-#include <iostream>
 #include <thread>
 #include <vector>
+
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include "lbfgs_raw.hpp"
 #include "minco.hpp"
@@ -16,7 +23,7 @@
 namespace traj_opt {
 
 class PerchingOptimizer {
-public:
+   public:
     PerchingOptimizer()
         : debug_pause_(false),
           num_pieces_(0),
@@ -72,31 +79,33 @@ public:
                           double min_thrust,
                           double max_omega,
                           double max_yaw_omega) {
+        assert(max_velocity > 0.0 && "Max velocity must be positive");
+        assert(max_acceleration > 0.0 && "Max acceleration must be positive");
+        assert(max_thrust > min_thrust && "Max thrust must be greater than min thrust");
+        assert(max_omega > 0.0 && "Max omega must be positive");
+        assert(max_yaw_omega > 0.0 && "Max yaw omega must be positive");
+
         max_vel_ = max_velocity;
         max_acc_ = max_acceleration;
         max_thrust_ = max_thrust;
         min_thrust_ = min_thrust;
         max_omega_ = max_omega;
         max_yaw_omega_ = max_yaw_omega;
-
-        std::cout << "[PerchingOptimizer] setDynamicLimits: vmax=" << max_vel_
-                  << ", amax=" << max_acc_ << ", thrust_max=" << max_thrust_
-                  << ", thrust_min=" << min_thrust_ << ", omega_max=" << max_omega_
-                  << ", omega_yaw_max=" << max_yaw_omega_ << std::endl;
     }
 
     void setRobotParameters(double landing_speed_offset,
                             double tail_length,
                             double body_radius,
                             double platform_radius) {
+        assert(landing_speed_offset > 0.0 && "Landing speed offset must be positive");
+        assert(tail_length > 0.0 && "Tail length must be positive");
+        assert(body_radius > 0.0 && "Body radius must be positive");
+        assert(platform_radius > 0.0 && "Platform radius must be positive");
+
         landing_speed_offset_ = landing_speed_offset;
         tail_length_ = tail_length;
         body_radius_ = body_radius;
         platform_radius_ = platform_radius;
-
-        std::cout << "[PerchingOptimizer] setRobotParameters: v_plus=" << landing_speed_offset_
-                  << ", tail_length=" << tail_length_ << ", body_radius=" << body_radius_
-                  << ", platform_radius=" << platform_radius_ << std::endl;
     }
 
     void setOptimizationWeights(double time_weight,
@@ -107,6 +116,14 @@ public:
                                 double thrust_weight,
                                 double omega_weight,
                                 double perching_collision_weight) {
+        assert(time_weight >= 0.0 && "Time weight must be non-negative");
+        assert(position_weight >= 0.0 && "Position weight must be non-negative");
+        assert(velocity_weight >= 0.0 && "Velocity weight must be non-negative");
+        assert(acceleration_weight >= 0.0 && "Acceleration weight must be non-negative");
+        assert(thrust_weight >= 0.0 && "Thrust weight must be non-negative");
+        assert(omega_weight >= 0.0 && "Omega weight must be non-negative");
+        assert(perching_collision_weight >= 0.0 && "Perching collision weight must be non-negative");
+
         time_w_ = time_weight;
         tail_velocity_w_ = tail_velocity_weight;
         pos_w_ = position_weight;
@@ -115,17 +132,11 @@ public:
         thrust_w_ = thrust_weight;
         omega_w_ = omega_weight;
         perching_collision_w_ = perching_collision_weight;
-
-        std::cout << "[PerchingOptimizer] setOptimizationWeights: rhoT=" << time_w_
-                  << ", rhoVt=" << tail_velocity_w_ << ", rhoP=" << pos_w_
-                  << ", rhoV=" << vel_w_ << ", rhoA=" << acc_w_
-                  << ", rhoThrust=" << thrust_w_ << ", rhoOmega=" << omega_w_
-                  << ", rhoPerchingCollision=" << perching_collision_w_ << std::endl;
     }
 
     void setIntegrationSteps(int integration_steps) {
+        assert(integration_steps > 0 && "Integration steps must be positive");
         integration_steps_ = integration_steps;
-        std::cout << "[PerchingOptimizer] setIntegrationSteps: K=" << integration_steps_ << std::endl;
     }
 
     void setDebugMode(bool debug_pause) {
@@ -139,13 +150,13 @@ public:
                             int num_pieces,
                             Trajectory& trajectory,
                             const double& replanning_time = -1.0) {
-        std::cout << "[PerchingOptimizer] generateTrajectory START" << std::endl;
-        std::cout << "[PerchingOptimizer] Input initial_state:\n" << initial_state << std::endl;
-        std::cout << "[PerchingOptimizer] Input target_pos: " << target_pos.transpose() << std::endl;
-        std::cout << "[PerchingOptimizer] Input target_vel: " << target_vel.transpose() << std::endl;
-        std::cout << "[PerchingOptimizer] Input landing_quat: [" << landing_quat.w() << ", "
-                  << landing_quat.x() << ", " << landing_quat.y() << ", " << landing_quat.z() << "]" << std::endl;
-        std::cout << "[PerchingOptimizer] Input num_pieces: " << num_pieces << std::endl;
+        assert(initial_state.rows() == 3 && initial_state.cols() == 4 && "Initial state must be 3x4 matrix");
+        assert(num_pieces > 0 && "Number of pieces must be positive");
+        assert(landing_quat.norm() > 0.99 && landing_quat.norm() < 1.01 && "Landing quaternion must be unit quaternion");
+
+#ifndef NDEBUG
+        std::cout << "[PerchingOptimizer] Starting trajectory generation with " << num_pieces << " pieces" << std::endl;
+#endif
 
         num_pieces_ = num_pieces;
         time_var_dim_ = 1;
@@ -167,15 +178,11 @@ public:
         target_vel_ = target_vel;
 
         quaternionToZAxis(landing_quat, landing_att_z_vec_);
-        std::cout << "[PerchingOptimizer] landing_att_z_vec_: " << landing_att_z_vec_.transpose() << std::endl;
 
         thrust_mid_level_ = (max_thrust_ + min_thrust_) / 2.0;
         thrust_half_range_ = (max_thrust_ - min_thrust_) / 2.0;
-        std::cout << "[PerchingOptimizer] thrust_mid_level_: " << thrust_mid_level_
-                  << ", thrust_half_range_: " << thrust_half_range_ << std::endl;
 
         landing_vel_ = target_vel_ - landing_att_z_vec_ * landing_speed_offset_;
-        std::cout << "[PerchingOptimizer] landing_vel_: " << landing_vel_.transpose() << std::endl;
 
         landing_basis_x_ = landing_att_z_vec_.cross(Eigen::Vector3d(0.0, 0.0, 1.0));
         if (landing_basis_x_.squaredNorm() == 0.0) {
@@ -185,15 +192,9 @@ public:
         landing_basis_y_ = landing_att_z_vec_.cross(landing_basis_x_);
         landing_basis_y_.normalize();
 
-        std::cout << "[PerchingOptimizer] landing_basis_x_: " << landing_basis_x_.transpose() << std::endl;
-        std::cout << "[PerchingOptimizer] landing_basis_y_: " << landing_basis_y_.transpose() << std::endl;
-
         tail_velocity_params.setConstant(0.0);
-        std::cout << "[PerchingOptimizer] tail_velocity_params initialized: "
-                  << tail_velocity_params.transpose() << std::endl;
 
         initial_state_matrix_ = initial_state;
-        std::cout << "[PerchingOptimizer] initial_state_matrix_:\n" << initial_state_matrix_ << std::endl;
 
         minco_optimizer_.reset(num_pieces_);
 
@@ -257,11 +258,15 @@ public:
         double min_objective = 0.0;
         int optimization_result = 0;
 
-        auto tic = std::chrono::steady_clock::now();
         inner_loop_duration_ = 0.0;
         integral_duration_ = 0.0;
 
         iteration_count_ = 0;
+
+#ifndef NDEBUG
+        auto tic = std::chrono::steady_clock::now();
+#endif
+
         optimization_result = lbfgs::lbfgs_optimize(
             variable_count,
             optimization_vars_,
@@ -272,10 +277,11 @@ public:
             this,
             &lbfgs_params);
 
+#ifndef NDEBUG
         auto toc = std::chrono::steady_clock::now();
-
-        std::cout << "\033[32m>ret: " << optimization_result << "\033[0m" << std::endl;
-        std::cout << "optimization time: " << (toc - tic).count() * 1e-6 << "ms" << std::endl;
+        std::cout << "[PerchingOptimizer] Optimization result: " << optimization_result << std::endl;
+        std::cout << "[PerchingOptimizer] Optimization time: " << (toc - tic).count() * 1e-6 << "ms" << std::endl;
+#endif
 
         if (debug_pause_) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -290,10 +296,10 @@ public:
         double piece_duration = expC2(log_time_var);
         double total_duration = num_pieces_ * piece_duration;
 
-        std::cout << "[PerchingOptimizer] Final optimization result - log_time_var: " << log_time_var
-                  << ", dT: " << piece_duration << ", T: " << total_duration << std::endl;
-        std::cout << "[PerchingOptimizer] Final tail_angle: " << tail_angle
-                  << ", tail_velocity_params: " << tail_velocity_params.transpose() << std::endl;
+#ifndef NDEBUG
+        std::cout << "[PerchingOptimizer] Final result - duration: " << total_duration
+                  << ", tail_angle: " << tail_angle << std::endl;
+#endif
 
         Eigen::Vector3d tail_velocity;
         computeTailVelocity(tail_velocity_params, landing_vel_, landing_basis_x_, landing_basis_y_, tail_velocity);
@@ -304,24 +310,15 @@ public:
         tail_state.col(2) = forwardThrust(tail_angle, thrust_half_range_, thrust_mid_level_) * landing_att_z_vec_ + gravity_vec_;
         tail_state.col(3).setZero();
 
-        std::cout << "[PerchingOptimizer] gravity_vec_: " << gravity_vec_.transpose() << std::endl;
-        std::cout << "[PerchingOptimizer] thrust_mid_level_: " << thrust_mid_level_
-                  << ", thrust_half_range_: " << thrust_half_range_ << std::endl;
-        std::cout << "[PerchingOptimizer] tail_angle: " << tail_angle
-                  << ", sin(tail_angle): " << std::sin(tail_angle) << std::endl;
-        std::cout << "[PerchingOptimizer] forwardThrust(tail_angle): "
-                  << forwardThrust(tail_angle, thrust_half_range_, thrust_mid_level_) << std::endl;
-        std::cout << "[PerchingOptimizer] forwardThrust(tail_angle) * landing_att_z_vec_: "
-                  << (forwardThrust(tail_angle, thrust_half_range_, thrust_mid_level_) * landing_att_z_vec_).transpose()
-                  << std::endl;
-        std::cout << "[PerchingOptimizer] Final tail_state matrix:\n" << tail_state << std::endl;
-
         minco_optimizer_.generate(initial_state_matrix_, tail_state, intermediate_waypoints, piece_duration);
         trajectory = minco_optimizer_.getTraj();
 
-        std::cout << "[PerchingOptimizer] tail_velocity: " << tail_velocity.transpose() << std::endl;
-        std::cout << "[PerchingOptimizer] maxOmega: " << getMaxOmega(trajectory, gravity_vec_) << std::endl;
-        std::cout << "[PerchingOptimizer] maxThrust: " << trajectory.getMaxThrust() << std::endl;
+#ifndef NDEBUG
+        double max_omega = getMaxOmega(trajectory, gravity_vec_);
+        double max_thrust = trajectory.getMaxThrust();
+        std::cout << "[PerchingOptimizer] Trajectory stats - maxOmega: " << max_omega
+                  << ", maxThrust: " << max_thrust << std::endl;
+#endif
 
         initial_trajectory_ = trajectory;
         initial_tail_angle_ = tail_angle;
@@ -357,7 +354,7 @@ public:
     std::vector<Eigen::Vector3d> tracking_visible_ps_;
     std::vector<double> tracking_thetas_;
 
-private:
+   private:
     static bool quaternionToZAxis(const Eigen::Quaterniond& quat,
                                   Eigen::Vector3d& z_axis) {
         Eigen::Matrix3d rotation = quat.toRotationMatrix();
@@ -380,7 +377,8 @@ private:
         double norm_cu = norm_sq * vec.norm();
         Eigen::Matrix3d term = (3.0 * vec * vec.transpose() / norm_sq - Eigen::Matrix3d::Identity());
         return (term * dir * vec.transpose() - vec * dir.transpose() -
-                vec.dot(dir) * Eigen::Matrix3d::Identity()) / norm_cu;
+                vec.dot(dir) * Eigen::Matrix3d::Identity()) /
+               norm_cu;
     }
 
     static double smoothedL1(const double& value,
@@ -460,9 +458,7 @@ private:
                                     const Eigen::Vector3d& basis_x,
                                     const Eigen::Vector3d& basis_y,
                                     Eigen::Vector3d& tail_velocity) {
-        tail_velocity = landing_velocity
-                        + tail_velocity_params.x() * basis_x
-                        + tail_velocity_params.y() * basis_y;
+        tail_velocity = landing_velocity + tail_velocity_params.x() * basis_x + tail_velocity_params.y() * basis_y;
     }
 
     static double objectiveFunction(void* ptr_optimizer,
@@ -497,7 +493,8 @@ private:
                             optimizer->landing_att_z_vec_ * optimizer->tail_length_;
         tail_state.col(1) = tail_velocity;
         tail_state.col(2) = forwardThrust(tail_angle, optimizer->thrust_half_range_, optimizer->thrust_mid_level_) *
-                            optimizer->landing_att_z_vec_ + optimizer->gravity_vec_;
+                                optimizer->landing_att_z_vec_ +
+                            optimizer->gravity_vec_;
         tail_state.col(3).setZero();
 
         auto tic = std::chrono::steady_clock::now();
@@ -573,7 +570,8 @@ private:
                                 optimizer->landing_att_z_vec_ * optimizer->tail_length_;
             tail_state.col(1) = tail_velocity;
             tail_state.col(2) = forwardThrust(tail_angle, optimizer->thrust_half_range_, optimizer->thrust_mid_level_) *
-                                optimizer->landing_att_z_vec_ + optimizer->gravity_vec_;
+                                    optimizer->landing_att_z_vec_ +
+                                optimizer->gravity_vec_;
             tail_state.col(3).setZero();
 
             optimizer->minco_optimizer_.generate(optimizer->initial_state_matrix_, tail_state, intermediate_waypoints, piece_duration);
@@ -737,8 +735,8 @@ private:
                 double duration_to_now = (i + alpha) * minco_optimizer_.t(1);
                 Eigen::Vector3d car_pos = target_pos_ + target_vel_ * duration_to_now;
                 if (computePerchingCollisionCost(pos, acc, car_pos,
-                                                  grad_temp_pos, grad_temp_acc, grad_temp_car,
-                                                  cost_temp)) {
+                                                 grad_temp_pos, grad_temp_acc, grad_temp_car,
+                                                 cost_temp)) {
                     grad_pos_total += grad_temp_pos;
                     grad_acc_total += grad_temp_acc;
                     cost_inner += cost_temp;
