@@ -44,6 +44,13 @@ public:
                            const int& num_pieces,
                            Trajectory& result_trajectory,
                            const double& replan_time = -1.0) {
+        std::cout << "[TrajectoryOptimizer] generateTrajectory START" << std::endl;
+        std::cout << "[TrajectoryOptimizer] Input initial_state:\n" << initial_state << std::endl;
+        std::cout << "[TrajectoryOptimizer] Input target_position: " << target_position.transpose() << std::endl;
+        std::cout << "[TrajectoryOptimizer] Input target_velocity: " << target_velocity.transpose() << std::endl;
+        std::cout << "[TrajectoryOptimizer] Input landing_quaternion: [" << landing_quaternion.w() << ", " << landing_quaternion.x() << ", " << landing_quaternion.y() << ", " << landing_quaternion.z() << "]" << std::endl;
+        std::cout << "[TrajectoryOptimizer] Input num_pieces: " << num_pieces << std::endl;
+        
         num_pieces_ = num_pieces;
         time_dimension_ = 1;
         waypoint_dimension_ = num_pieces_ - 1;
@@ -59,30 +66,39 @@ public:
         // Set current state
         current_position_ = target_position;
         current_velocity_ = target_velocity;
+        std::cout << "[TrajectoryOptimizer] Set current_position_: " << current_position_.transpose() << std::endl;
+        std::cout << "[TrajectoryOptimizer] Set current_velocity_: " << current_velocity_.transpose() << std::endl;
         
         // Convert quaternion to vector
         quaternionToVector(landing_quaternion, tail_quaternion_vector_);
+        std::cout << "[TrajectoryOptimizer] tail_quaternion_vector_: " << tail_quaternion_vector_.transpose() << std::endl;
         
         // Set thrust parameters
         thrust_middle_ = (max_thrust_ + min_thrust_) / 2.0;
         thrust_half_ = (max_thrust_ - min_thrust_) / 2.0;
+        std::cout << "[TrajectoryOptimizer] thrust_middle_: " << thrust_middle_ << ", thrust_half_: " << thrust_half_ << std::endl;
         
         // Calculate landing velocity
         landing_velocity_ = current_velocity_ - tail_quaternion_vector_ * velocity_plus_;
+        std::cout << "[TrajectoryOptimizer] landing_velocity_: " << landing_velocity_.transpose() << std::endl;
         
         // Calculate tangent vectors
         velocity_tangent_x_ = tail_quaternion_vector_.cross(Eigen::Vector3d(0, 0, 1));
         if (velocity_tangent_x_.squaredNorm() == 0) {
-            velocity_tangent_x_ = Eigen::Vector3d(1, 0, 0);
+            velocity_tangent_x_ = tail_quaternion_vector_.cross(Eigen::Vector3d(0, 1, 0));
         }
         velocity_tangent_x_.normalize();
         velocity_tangent_y_ = tail_quaternion_vector_.cross(velocity_tangent_x_);
         velocity_tangent_y_.normalize();
+        std::cout << "[TrajectoryOptimizer] velocity_tangent_x_: " << velocity_tangent_x_.transpose() << std::endl;
+        std::cout << "[TrajectoryOptimizer] velocity_tangent_y_: " << velocity_tangent_y_.transpose() << std::endl;
         
         velocity_tangent.setConstant(0.0);
+        std::cout << "[TrajectoryOptimizer] velocity_tangent initialized: " << velocity_tangent.transpose() << std::endl;
         
         // Set boundary conditions
         initial_state_matrix_ = initial_state;
+        std::cout << "[TrajectoryOptimizer] initial_state_matrix_:\n" << initial_state_matrix_ << std::endl;
         
         // Initialize MINCO optimizer
         minco_optimizer_.reset(num_pieces_);
@@ -91,6 +107,7 @@ public:
         updateStaticVariables();
         
         tail_thrust = 0.0;
+        std::cout << "[TrajectoryOptimizer] tail_thrust initialized: " << tail_thrust << std::endl;
         
         // Initial guess logic
         bool use_warm_start = has_initial_guess_ && replan_time > 0 && 
@@ -191,6 +208,9 @@ public:
         
         // Generate final trajectory
         double delta_time = getExponentialC2(time_var);
+        std::cout << "[TrajectoryOptimizer] Final optimization result - time_var: " << time_var << ", delta_time: " << delta_time << std::endl;
+        std::cout << "[TrajectoryOptimizer] Final tail_thrust: " << tail_thrust << ", velocity_tangent: " << velocity_tangent.transpose() << std::endl;
+        
         Eigen::Vector3d tail_velocity;
         getForwardTailVelocity(velocity_tangent, tail_velocity);
         
@@ -200,6 +220,15 @@ public:
         tail_state.col(1) = tail_velocity;
         tail_state.col(2) = getForwardThrust(tail_thrust) * tail_quaternion_vector_ + gravity_;
         tail_state.col(3).setZero();
+        
+        std::cout << "[TrajectoryOptimizer] gravity_: " << gravity_.transpose() << std::endl;
+        std::cout << "[TrajectoryOptimizer] thrust_middle_: " << thrust_middle_ << ", thrust_half_: " << thrust_half_ << std::endl;
+        std::cout << "[TrajectoryOptimizer] tail_thrust: " << tail_thrust << ", sin(tail_thrust): " << sin(tail_thrust) << std::endl;
+        std::cout << "[TrajectoryOptimizer] Manual calculation: " << thrust_half_ << " * " << sin(tail_thrust) << " + " << thrust_middle_ << " = " << (thrust_half_ * sin(tail_thrust) + thrust_middle_) << std::endl;
+        std::cout << "[TrajectoryOptimizer] getForwardThrust(tail_thrust) * tail_quaternion_vector_: " << (getForwardThrust(tail_thrust) * tail_quaternion_vector_).transpose() << std::endl;
+        std::cout << "[TrajectoryOptimizer] Final tail_state matrix:\n" << tail_state << std::endl;
+        std::cout << "[TrajectoryOptimizer] Final getForwardThrust(tail_thrust): " << getForwardThrust(tail_thrust) << std::endl;
+        std::cout << "[TrajectoryOptimizer] Final tail_velocity: " << tail_velocity.transpose() << std::endl;
         
         minco_optimizer_.generate(initial_state_matrix_, tail_state, waypoints, delta_time);
         result_trajectory = minco_optimizer_.getTraj();
@@ -226,6 +255,10 @@ public:
         min_thrust_ = min_thrust;
         max_angular_velocity_ = max_angular_velocity;
         max_yaw_angular_velocity_ = max_yaw_angular_velocity;
+        
+        std::cout << "[TrajectoryOptimizer] setDynamicLimits: max_velocity=" << max_velocity_ << ", max_acceleration=" << max_acceleration_ 
+                  << ", max_thrust=" << max_thrust_ << ", min_thrust=" << min_thrust_
+                  << ", max_angular_velocity=" << max_angular_velocity_ << ", max_yaw_angular_velocity=" << max_yaw_angular_velocity_ << std::endl;
     }
     
     void setRobotParameters(double velocity_plus, double robot_length,
@@ -234,6 +267,9 @@ public:
         robot_length_ = robot_length;
         robot_radius_ = robot_radius;
         platform_radius_ = platform_radius;
+        
+        std::cout << "[TrajectoryOptimizer] setRobotParameters: velocity_plus=" << velocity_plus_ << ", robot_length=" << robot_length_ 
+                  << ", robot_radius=" << robot_radius_ << ", platform_radius=" << platform_radius_ << std::endl;
     }
     
     void setOptimizationWeights(double time_weight, double velocity_tail_weight,
@@ -248,10 +284,17 @@ public:
         thrust_weight_ = thrust_weight;
         angular_velocity_weight_ = angular_velocity_weight;
         perching_collision_weight_ = perching_collision_weight;
+        
+        std::cout << "[TrajectoryOptimizer] setOptimizationWeights: time_weight=" << time_weight_ << ", velocity_tail_weight=" << velocity_tail_weight_ 
+                  << ", position_weight=" << position_weight_ << ", velocity_weight=" << velocity_weight_ << ", acceleration_weight=" << acceleration_weight_ 
+                  << ", thrust_weight=" << thrust_weight_ << ", angular_velocity_weight=" << angular_velocity_weight_ 
+                  << ", perching_collision_weight=" << perching_collision_weight_ << std::endl;
     }
     
     void setIntegrationParameters(int integration_steps) {
         integration_steps_ = integration_steps;
+        
+        std::cout << "[TrajectoryOptimizer] setIntegrationParameters: integration_steps=" << integration_steps_ << std::endl;
     }
     
     void setDebugMode(bool enable_debug) {
@@ -538,6 +581,12 @@ private:
         static_tail_quaternion_vector_ = tail_quaternion_vector_;
         static_gravity_ = gravity_;
         static_iteration_count_ = 0;
+        
+        std::cout << "[TrajectoryOptimizer] updateStaticVariables:" << std::endl;
+        std::cout << "  static_thrust_middle_: " << static_thrust_middle_ << std::endl;
+        std::cout << "  static_thrust_half_: " << static_thrust_half_ << std::endl;
+        std::cout << "  static_landing_velocity_: " << static_landing_velocity_.transpose() << std::endl;
+        std::cout << "  static_tail_quaternion_vector_: " << static_tail_quaternion_vector_.transpose() << std::endl;
     }
 
     // Objective function and early exit callback

@@ -295,6 +295,13 @@ bool TrajOpt::generate_traj(const Eigen::MatrixXd& iniState,
                             const int& N,
                             Trajectory& traj,
                             const double& t_replan) {
+  std::cout << "[TrajOpt] generate_traj START" << std::endl;
+  std::cout << "[TrajOpt] Input iniState:\n" << iniState << std::endl;
+  std::cout << "[TrajOpt] Input car_p: " << car_p.transpose() << std::endl;
+  std::cout << "[TrajOpt] Input car_v: " << car_v.transpose() << std::endl;
+  std::cout << "[TrajOpt] Input land_q: [" << land_q.w() << ", " << land_q.x() << ", " << land_q.y() << ", " << land_q.z() << "]" << std::endl;
+  std::cout << "[TrajOpt] Input N: " << N << std::endl;
+  
   N_ = N;
   dim_t_ = 1;
   dim_p_ = N_ - 1;
@@ -305,16 +312,16 @@ bool TrajOpt::generate_traj(const Eigen::MatrixXd& iniState,
   Eigen::Map<Eigen::Vector2d> vt(x_ + dim_t_ + 3 * dim_p_ + 1);
   car_p_ = car_p;
   car_v_ = car_v;
-  // std::cout << "land_q: "
-  //           << land_q.w() << ","
-  //           << land_q.x() << ","
-  //           << land_q.y() << ","
-  //           << land_q.z() << "," << std::endl;
+  
   q2v(land_q, tail_q_v_);
+  std::cout << "[TrajOpt] tail_q_v_: " << tail_q_v_.transpose() << std::endl;
+  
   thrust_middle_ = (thrust_max_ + thrust_min_) / 2;
   thrust_half_ = (thrust_max_ - thrust_min_) / 2;
+  std::cout << "[TrajOpt] thrust_middle_: " << thrust_middle_ << ", thrust_half_: " << thrust_half_ << std::endl;
 
   land_v_ = car_v - tail_q_v_ * v_plus_;
+  std::cout << "[TrajOpt] land_v_: " << land_v_.transpose() << std::endl;
   // std::cout << "tail_q_v_: " << tail_q_v_.transpose() << std::endl;
 
   v_t_x_ = tail_q_v_.cross(Eigen::Vector3d(0, 0, 1));
@@ -324,11 +331,15 @@ bool TrajOpt::generate_traj(const Eigen::MatrixXd& iniState,
   v_t_x_.normalize();
   v_t_y_ = tail_q_v_.cross(v_t_x_);
   v_t_y_.normalize();
+  std::cout << "[TrajOpt] v_t_x_: " << v_t_x_.transpose() << std::endl;
+  std::cout << "[TrajOpt] v_t_y_: " << v_t_y_.transpose() << std::endl;
 
   vt.setConstant(0.0);
+  std::cout << "[TrajOpt] vt initialized: " << vt.transpose() << std::endl;
 
   // NOTE set boundary conditions
   initS_ = iniState;
+  std::cout << "[TrajOpt] initS_:\n" << initS_ << std::endl;
 
   // set initial guess with obvp minimum jerk + rhoT
   mincoOpt_.reset(N_);
@@ -418,6 +429,9 @@ bool TrajOpt::generate_traj(const Eigen::MatrixXd& iniState,
   }
   double dT = expC2(t);
   double T = N_ * dT;
+  std::cout << "[TrajOpt] Final optimization result - t: " << t << ", dT: " << dT << ", T: " << T << std::endl;
+  std::cout << "[TrajOpt] Final tail_f: " << tail_f << ", vt: " << vt.transpose() << std::endl;
+  
   Eigen::Vector3d tailV;
   forwardTailV(vt, tailV);
   Eigen::MatrixXd tailS(3, 4);
@@ -425,14 +439,21 @@ bool TrajOpt::generate_traj(const Eigen::MatrixXd& iniState,
   tailS.col(1) = tailV;
   tailS.col(2) = forward_thrust(tail_f) * tail_q_v_ + g_;
   tailS.col(3).setZero();
-  // std::cout << "tail thrust: " << forward_thrust(tail_f) << std::endl;
-  // std::cout << tailS << std::endl;
+  
+  std::cout << "[TrajOpt] g_: " << g_.transpose() << std::endl;
+  std::cout << "[TrajOpt] thrust_middle_: " << thrust_middle_ << ", thrust_half_: " << thrust_half_ << std::endl;
+  std::cout << "[TrajOpt] tail_f: " << tail_f << ", sin(tail_f): " << sin(tail_f) << std::endl;
+  std::cout << "[TrajOpt] Manual calculation: " << thrust_half_ << " * " << sin(tail_f) << " + " << thrust_middle_ << " = " << (thrust_half_ * sin(tail_f) + thrust_middle_) << std::endl;
+  std::cout << "[TrajOpt] forward_thrust(tail_f) * tail_q_v_: " << (forward_thrust(tail_f) * tail_q_v_).transpose() << std::endl;
+  std::cout << "[TrajOpt] Final tailS matrix:\n" << tailS << std::endl;
+  std::cout << "[TrajOpt] Final forward_thrust(tail_f): " << forward_thrust(tail_f) << std::endl;
+  
   mincoOpt_.generate(initS_, tailS, P, dT);
   traj = mincoOpt_.getTraj();
 
-  std::cout << "tailV: " << tailV.transpose() << std::endl;
-  std::cout << "maxOmega: " << getMaxOmega(traj) << std::endl;
-  std::cout << "maxThrust: " << traj.getMaxThrust() << std::endl;
+  std::cout << "[TrajOpt] tailV: " << tailV.transpose() << std::endl;
+  std::cout << "[TrajOpt] maxOmega: " << getMaxOmega(traj) << std::endl;
+  std::cout << "[TrajOpt] maxThrust: " << traj.getMaxThrust() << std::endl;
 
   init_traj_ = traj;
   init_tail_f_ = tail_f;
@@ -580,6 +601,10 @@ void TrajOpt::setDynamicLimits(double vmax, double amax, double thrust_max, doub
   thrust_min_ = thrust_min;
   omega_max_ = omega_max;
   omega_yaw_max_ = omega_yaw_max;
+  
+  std::cout << "[TrajOpt] setDynamicLimits: vmax=" << vmax_ << ", amax=" << amax_ 
+            << ", thrust_max=" << thrust_max_ << ", thrust_min=" << thrust_min_
+            << ", omega_max=" << omega_max_ << ", omega_yaw_max=" << omega_yaw_max_ << std::endl;
 }
 
 void TrajOpt::setRobotParameters(double v_plus, double robot_l, double robot_r, double platform_r) {
@@ -587,6 +612,9 @@ void TrajOpt::setRobotParameters(double v_plus, double robot_l, double robot_r, 
   robot_l_ = robot_l;
   robot_r_ = robot_r;
   platform_r_ = platform_r;
+  
+  std::cout << "[TrajOpt] setRobotParameters: v_plus=" << v_plus_ << ", robot_l=" << robot_l_ 
+            << ", robot_r=" << robot_r_ << ", platform_r=" << platform_r_ << std::endl;
 }
 
 void TrajOpt::setOptimizationWeights(double rhoT, double rhoVt, double rhoP, double rhoV, 
@@ -599,10 +627,17 @@ void TrajOpt::setOptimizationWeights(double rhoT, double rhoVt, double rhoP, dou
   rhoThrust_ = rhoThrust;
   rhoOmega_ = rhoOmega;
   rhoPerchingCollision_ = rhoPerchingCollision;
+  
+  std::cout << "[TrajOpt] setOptimizationWeights: rhoT=" << rhoT_ << ", rhoVt=" << rhoVt_ 
+            << ", rhoP=" << rhoP_ << ", rhoV=" << rhoV_ << ", rhoA=" << rhoA_ 
+            << ", rhoThrust=" << rhoThrust_ << ", rhoOmega=" << rhoOmega_ 
+            << ", rhoPerchingCollision=" << rhoPerchingCollision_ << std::endl;
 }
 
 void TrajOpt::setIntegrationSteps(int K) {
   K_ = K;
+  
+  std::cout << "[TrajOpt] setIntegrationSteps: K=" << K_ << std::endl;
 }
 
 void TrajOpt::setDebugMode(bool pause_debug) {
